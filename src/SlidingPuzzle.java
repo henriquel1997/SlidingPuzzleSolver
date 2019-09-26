@@ -6,6 +6,8 @@ public class SlidingPuzzle {
 
     private TreeNode root;
     private List<Integer> cantMove = new ArrayList<>();
+    private int goalXColumnLast = 1;
+    private int goalYRowLast = 1;
 
     class TreeNode{
 
@@ -129,36 +131,44 @@ public class SlidingPuzzle {
             }
 
             if(!wasStateSeen){
-                TreeNode node = new TreeNode(newState, this, newState[zeroY][zeroX], x, y, depth + 1, distanceType, regularDistance);
-                return node;
+                return new TreeNode(newState, this, newState[zeroY][zeroX], x, y, depth + 1, distanceType, regularDistance);
             }
 
             return null;
         }
 
+        int goalXOf(int number){
+            return (number-1)%n;
+        }
+
+        int goalYOf(int number){
+            return (number-1)/n;
+        }
+
         private int distanceToGoal(int number, int x, int y){
 
-            int goalX = (number-1)%n;
-            int goalY = (number-1)/n;
+            int goalX = goalXOf(number);
+            int goalY = goalYOf(number);
 
             if(!regularDistance && distanceType > 0 && number == distanceType){
                 if(number == n){
-                    //Ultimo numero na posicao do antepenultimo
-                    goalX--;
+                    //Last from row
+                    goalY += goalYRowLast;
                 }else if(number == n - 1){
-                    //Antepenultimo número embaixo do último
-                    goalY++;
+                    //Before last from row
+                    goalX++;
                 }else if((number - 1) % n == 0){
-                    //Mesma coisa mas para a coluna
                     if(number - 1 == (n*(n - 1))){
-                        goalY--;
+                        //Last from column
+                        goalX += goalXColumnLast;
                     }else if(number - 1 == (n*(n - 2))){
-                        goalX++;
+                        //Before last from column
+                        goalY++;
                     }
                 }
             }
 
-            return  Math.abs(goalX - x) + Math.abs(goalY - y);
+            return  manhattanDistance(x, y, goalX, goalY);
         }
 
         List<Integer> getSteps(){
@@ -212,45 +222,82 @@ public class SlidingPuzzle {
         if(isSolvable()) {
             List<Integer> sequence = new ArrayList<>();
 
+            if(root.totalDistance == 0) return sequence;
+
             if(root.n > 3){
-                //int[] seq = new int[]{ 1, 2, 4, 3, 5, 13, 9 };
                 int index = 0;
                 int[] seq = new int[2 * root.n - 1];
                 for(int i = 1; i <= root.n; i++){
                     seq[index++] = i;
                 }
 
-                int aux = seq[index - 1];
-                seq[index - 1] = seq[index - 2];
-                seq[index - 2] = aux;
-
                 for(int i = root.n + 1; i - 1 <= root.n * (root.n - 1); i += root.n){
                     seq[index++] = i;
                 }
 
-                aux = seq[index - 1];
-                seq[index - 1] = seq[index - 2];
-                seq[index - 2] = aux;
+                boolean areTheLastTwoFromRowSetUp = false;
+                boolean areTheLastTwoFromColumnSetUp = false;
 
                 for(int i = 0; i < seq.length; i++){
-                    root.distanceType = seq[i];
+                    int number = seq[i];
+
+                    goalXColumnLast = 1;
+                    goalYRowLast = 1;
+
+                    boolean shouldAddToCantMove = true;
+                    if(!areTheLastTwoFromRowSetUp && number == root.n - 1){
+                        boolean isLastFromRowFarAway = root.state[root.n -1][root.n -1] == root.n;
+                        if(!isLastFromRowFarAway){
+                            goalYRowLast = root.n - 1;
+                            number = seq[i+1];
+                            shouldAddToCantMove = false;
+                            i--;
+                        }
+                    }else if(!areTheLastTwoFromColumnSetUp && number -1 == root.n * (root.n - 2)){
+                        boolean isLastFromColumnFarAway = root.state[root.n -1][root.n -1] - 1 == (root.n * (root.n - 1));
+                        if(!isLastFromColumnFarAway){
+                            goalXColumnLast = root.n - 1;
+                            number = seq[i+1];
+                            shouldAddToCantMove = false;
+                            i--;
+                        }
+                    }
+
+//                    if(root.state[root.goalYOf(number)][root.goalXOf(number)] == number && shouldAddToCantMove){
+//                        cantMove.add(number);
+//                        continue;
+//                    }
+//
+//                    sequence.addAll(moveZeroCloseToNumber(number));
+
+                    root.distanceType = number;
                     root.calculateDistance();
                     root = idaStar();
                     root.showState();
                     sequence.addAll(root.getSteps());
                     root.parent = null;
                     root.pieceMoved = -1;
-                    cantMove.add(seq[i]);
 
-                    if(seq[i] == root.n - 1 || seq[i] - 1 == (root.n * (root.n-2))){
-                        if(!root.regularDistance){
-                            i -= 2;
+                    if(shouldAddToCantMove){
+                        cantMove.add(number);
+
+                        boolean isLastFromRow = number == root.n;
+                        boolean isLastFromColumn = (number - 1) == (root.n * (root.n-1));
+                        if(isLastFromRow || isLastFromColumn){
+                            if(!root.regularDistance){
+                                i -= 2;
+                                cantMove.remove(cantMove.size() - 2);
+                                if(isLastFromRow){
+                                    areTheLastTwoFromRowSetUp = true;
+                                }else{
+                                    areTheLastTwoFromColumnSetUp = true;
+                                }
+                            }
+
+                            root.regularDistance = !root.regularDistance;
+                        }else if(root.regularDistance){
                             cantMove.remove(cantMove.size() - 2);
                         }
-
-                        root.regularDistance = !root.regularDistance;
-                    }else if(root.regularDistance){
-                        cantMove.remove(cantMove.size() - 2);
                     }
                 }
 
@@ -287,6 +334,76 @@ public class SlidingPuzzle {
             return sequence;
         }
         return null;
+    }
+
+    private List<Integer> moveZeroCloseToNumber(int number){
+        int closestX = Integer.MAX_VALUE;
+        int closestY = Integer.MIN_VALUE;
+        int closestDistance = Integer.MAX_VALUE;
+        int numberX = -1;
+        int numberY = -1;
+
+        for(int x = 0; x < root.n; x++){
+            for(int y = 0; y < root.n; y++){
+                if(number == root.state[y][x]){
+                    numberX = x;
+                    numberY = y;
+                    break;
+                }
+            }
+        }
+
+        if(numberX + 1 < root.n && !cantMove.contains(root.state[numberY][numberX + 1])) {
+            int dis = manhattanDistance(root.zeroX, root.zeroY, numberX + 1, numberY);
+            if(dis < closestDistance) {
+                closestDistance = dis;
+                closestX = numberX + 1;
+                closestY = numberY;
+            }
+        }
+
+        if(numberX - 1 >= 0 && !cantMove.contains(root.state[numberY][numberX - 1])) {
+            int dis = manhattanDistance(root.zeroX, root.zeroY, numberX - 1, numberY);
+            if(dis < closestDistance) {
+                closestDistance = dis;
+                closestX = numberX - 1;
+                closestY = numberY;
+            }
+        }
+
+        if(numberY + 1 < root.n && !cantMove.contains(root.state[numberY + 1][numberX])) {
+            int dis = manhattanDistance(root.zeroX, root.zeroY, numberX, numberY + 1);
+            if(dis < closestDistance) {
+                closestDistance = dis;
+                closestX = numberX;
+                closestY = numberY + 1;
+            }
+        }
+
+        if(numberY - 1 >= 0 && !cantMove.contains(root.state[numberY - 1][numberX])) {
+            int dis = manhattanDistance(root.zeroX, root.zeroY, numberX, numberY - 1);
+            if(dis < closestDistance) {
+                closestDistance = dis;
+                closestX = numberX;
+                closestY = numberY - 1;
+            }
+        }
+
+        int dir = Integer.signum(closestX - root.zeroX);
+        while(root.zeroX != closestX){
+            root = root.movePiece(root.zeroX + dir, root.zeroY, false);
+        }
+
+        dir = Integer.signum(closestY - root.zeroY);
+        while(root.zeroY != closestY){
+            root = root.movePiece(root.zeroX, root.zeroY + dir, false);
+        }
+
+        List<Integer> moves = root.getSteps();
+        root.parent = null;
+        root.pieceMoved = -1;
+
+        return moves;
     }
 
     private TreeNode idaStar(){
@@ -357,5 +474,9 @@ public class SlidingPuzzle {
             pos++;
         }
         list.add(pos, node);
+    }
+
+    private static int manhattanDistance(int xFrom, int yFrom, int xTo, int yTo){
+        return Math.abs(xTo - xFrom) + Math.abs(yTo - yFrom);
     }
 }
